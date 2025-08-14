@@ -1,0 +1,61 @@
+import SwiftUI
+import SwiftData
+
+struct ContentView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \CellItem.creationDate) private var items: [CellItem]
+
+    var body: some View {
+        ZStack {
+            // 背景：ダーク→ミッドのグラデーション
+            LinearGradient(colors: [Theme.bgDark, Theme.bgMid],
+                           startPoint: .topLeading,
+                           endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+
+            ForEach(items) { item in
+                CellView(item: item)
+            }
+        }
+        // 右上に常時表示の “＋” メニュー
+        .overlay(alignment: .topTrailing) {
+            AddCellMenu { type in addCell(of: type) }
+                .padding(.top, 8)
+                .padding(.trailing, 12)
+                .zIndex(10)
+        }
+        .onAppear {
+            if items.isEmpty { addCell(of: .today) }
+        }
+    }
+
+    private func addCell(of type: CellType) {
+        let baseX: Double = 80 + Double(items.count % 5) * 30
+        let baseY: Double = 150 + Double(items.count % 5) * 30
+        let newItem = CellItem(cellType: type, positionX: baseX, positionY: baseY)
+        modelContext.insert(newItem)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+}
+
+// 右上の “＋” メニュー（テーマ色でスタイル）
+private struct AddCellMenu: View {
+    let onSelect: (CellType) -> Void
+    var body: some View {
+        Menu {
+            ForEach(CellType.allCases, id: \.self) { type in
+                Button(type.rawValue) { onSelect(type) }
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(12)
+                .background(Theme.accent, in: Circle())
+                .overlay(Circle().strokeBorder(Theme.accent2.opacity(0.35)))
+                .shadow(color: Theme.accent.opacity(0.35), radius: 6, y: 2)
+                .accessibilityLabel("セルを追加")
+        }
+    }
+}
+

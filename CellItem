@@ -1,0 +1,65 @@
+import Foundation
+import SwiftData
+import SwiftUI   // ← Color(hex:) をここで定義するため
+
+// MARK: - 色ユーティリティ（全体で1か所だけ定義）
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let r = Double((int >> 16) & 0xFF) / 255.0
+        let g = Double((int >> 8) & 0xFF) / 255.0
+        let b = Double(int & 0xFF) / 255.0
+        self.init(.sRGB, red: r, green: g, blue: b, opacity: 1)
+    }
+}
+
+// MARK: - テーマ（色の一元管理）
+enum Theme {
+    static let bgDark  = Color(hex: "#071952")
+    static let bgMid   = Color(hex: "#0B666A")
+    static let accent  = Color(hex: "#35A29F") // 主要アクセント
+    static let accent2 = Color(hex: "#97FEED") // サブアクセント
+}
+
+enum CellType: String, Codable, CaseIterable {
+    case routine = "ルーティーン"
+    case today   = "今日やること"
+    case deadline = "締切管理"
+    case memo    = "メモ"
+}
+
+@Model
+final class CellItem {
+    @Attribute(.unique) var id: UUID = UUID()
+    var cellType: CellType
+    var positionX: Double
+    var positionY: Double
+    var width: Double
+    var height: Double
+    var colorHex: String
+    var creationDate: Date
+
+    @Attribute(.externalStorage) var content: Data?
+    var lastModifiedDate: Date = Date()
+
+    init(cellType: CellType,
+         positionX: Double = 50,
+         positionY: Double = 100,
+         width: Double = 250,
+         height: Double = 220,
+         colorHex: String = "FFFFFF") {
+        self.cellType = cellType
+        self.positionX = positionX
+        self.positionY = positionY
+        self.width = width
+        self.height = height
+        self.colorHex = colorHex
+        self.creationDate = Date()
+        self.lastModifiedDate = Date()
+    }
+
+    var name: String { cellType.rawValue }
+}
+

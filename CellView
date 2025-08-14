@@ -1,0 +1,353 @@
+import SwiftUI
+import SwiftData
+import UIKit   // SF Symbols 可用性チェック
+
+// MARK: - モデル
+struct TaskItem: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var text: String = ""
+    var isCompleted: Bool = false
+    var dueDate: Date? = nil          // routine/today: 時刻, deadline: 日付
+    var lastCompletedDate: Date?
+}
+
+// MARK: - 時計アイコン（フォールバック）
+@ViewBuilder
+private func ClockAddIcon() -> some View {
+    if UIImage(systemName: "clock.badge.plus") != nil {
+        Image(systemName: "clock.badge.plus")
+    } else if UIImage(systemName: "clock.badge") != nil {
+        Image(systemName: "clock.badge")
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 9))
+                    .offset(x: 4, y: 4)
+            }
+    } else {
+        Image(systemName: "clock")
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 9))
+                    .offset(x: 4, y: 4)
+            }
+    }
+}
+
+// MARK: - 子ビュー（.toolbarは持たない）
+
+struct MemoCellContent: View {
+    @Binding var text: String
+    var memoFocus: FocusState<Bool>.Binding
+    var body: some View {
+        TextEditor(text: $text)
+            .font(.callout)
+            .padding(8)
+            .scrollContentBackground(.hidden)
+            .focused(memoFocus)
+    }
+}
+
+struct DateChip: View {
+    @Binding var date: Date
+    let components: DatePickerComponents
+    let onDateRemoved: () -> Void
+    @State private var isPresented = false
+
+    var body: some View {
+        Button { isPresented = true } label: {
+            Text(date, format: components == .date ? .dateTime.month().day()
+                                                   : .dateTime.hour().minute())
+                .font(.caption)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Theme.accent2.opacity(0.25))   // 淡いチップ背景
+                .foregroundStyle(.primary)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .popover(isPresented: $isPresented) {
+            VStack {
+                DatePicker("日付/時刻を選択",
+                           selection: $date,
+                           displayedComponents: components)
+                    .datePickerStyle(.graphical)
+                    .padding()
+                HStack {
+                    Button("削除", systemImage: "trash", role: .destructive) {
+                        onDateRemoved(); isPresented = false
+                    }
+                    Spacer()
+                    Button("完了") { isPresented = false }.fontWeight(.bold)
+                }
+                .padding([.horizontal, .bottom])
+            }
+            .frame(minWidth: 300, minHeight: 350)
+        }
+    }
+}
+
+struct DeadlineCellContent: View {
+    @Binding var tasks: [TaskItem]
+    let addTask: () -> Void
+    let deleteTask: (IndexSet) -> Void
+    var taskFocus: FocusState<UUID?>.Binding
+
+    var body: some View {
+        VStack {
+            List {
+                ForEach($tasks) { $task in
+                    HStack {
+                        Image(systemName: task.isCompleted ? "checkmark.square.fill" : "square")
+                            .font(.body)
+                            .foregroundStyle(task.isCompleted ? Theme.accent : Theme.accent2.opacity(0.8))
+
+                        TextField("タスクを入力", text: $task.text)
+                            .font(.callout)
+                            .focused(taskFocus, equals: task.id)
+                            .strikethrough(task.isCompleted, color: .secondary)
+                            .foregroundStyle(task.isCompleted ? .secondary : .primary)
+
+                        Spacer()
+
+                        if let due = task.dueDate {
+                            DateChip(date: Binding(get: { due }, set: { task.dueDate = $0 }),
+                                     components: .date,
+                                     onDateRemoved: { task.dueDate = nil })
+                        } else {
+                            Button { task.dueDate = Date() } label: {
+                                Image(systemName: "calendar.badge.plus")
+                                    .foregroundStyle(Theme.accent)
+                            }
+                            .accessibilityLabel("日付を追加")
+                        }
+                    }
+                    .onTapGesture { } // row tap 抑制
+                    .onChange(of: task.text) { _, newValue in
+                        if newValue.isEmpty,
+                           let idx = tasks.firstIndex(where: { $0.id == task.id }) {
+                            deleteTask(IndexSet(integer: idx))
+                        }
+                    }
+                }
+                .onDelete(perform: deleteTask)
+            }
+            .listStyle(.plain)
+
+            HStack {
+                Button(action: addTask) {
+                    Image(systemName: "plus")
+                        .font(.callout)
+                        .foregroundStyle(Theme.accent)
+                }
+                .padding([.leading, .bottom], 8)
+                Spacer()
+            }
+        }
+    }
+}
+
+struct ChecklistCellContent: View {
+    let itemType: CellType            // .routine / .today
+    var itemName: String
+    @Binding var tasks: [TaskItem]
+    let addTask: () -> Void
+    let deleteTask: (IndexSet) -> Void
+    var taskFocus: FocusState<UUID?>.Binding
+
+    var body: some View {
+        VStack {
+            List {
+                ForEach($tasks) { $task in
+                    HStack {
+                        Image(systemName: task.isCompleted ? "checkmark.square.fill" : "square")
+                            .font(.body)
+                            .foregroundStyle(task.isCompleted ? Theme.accent : Theme.accent2.opacity(0.8))
+
+                        TextField("\(itemName)を入力", text: $task.text)
+                            .font(.callout)
+                            .focused(taskFocus, equals: task.id)
+                            .strikethrough(task.isCompleted, color: .secondary)
+                            .foregroundStyle(task.isCompleted ? .secondary : .primary)
+
+                        Spacer()
+
+                        if let due = task.dueDate {
+                            DateChip(date: Binding(get: { due }, set: { task.dueDate = $0 }),
+                                     components: .hourAndMinute,
+                                     onDateRemoved: { task.dueDate = nil })
+                        } else {
+                            Button { task.dueDate = Date() } label: {
+                                ClockAddIcon()
+                                    .foregroundStyle(Theme.accent)
+                            }
+                            .accessibilityLabel("時刻を追加")
+                        }
+                    }
+                    .onTapGesture { }
+                    .onChange(of: task.text) { _, newValue in
+                        if newValue.isEmpty,
+                           let idx = tasks.firstIndex(where: { $0.id == task.id }) {
+                            deleteTask(IndexSet(integer: idx))
+                        }
+                    }
+                }
+                .onDelete(perform: deleteTask)
+            }
+            .listStyle(.plain)
+
+            HStack {
+                Button(action: addTask) {
+                    Image(systemName: "plus")
+                        .font(.callout)
+                        .foregroundStyle(Theme.accent)
+                }
+                .padding([.leading, .bottom], 8)
+                Spacer()
+            }
+        }
+    }
+}
+
+// MARK: - メイン CellView（Done はここに1つだけ）
+struct CellView: View {
+    @Bindable var item: CellItem
+
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var tasks: [TaskItem] = []   // routine/today/deadline
+    @State private var memoText: String = ""    // memo 本文のみ
+    @State private var dragOffset: CGSize = .zero
+
+    @FocusState private var focusedTaskId: UUID?
+    @FocusState private var memoFocused: Bool
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            VStack(spacing: 8) {
+                Text(item.name)
+                    .font(.subheadline)
+                    .padding(.top, 8)
+
+                switch item.cellType {
+                case .memo:
+                    MemoCellContent(text: $memoText, memoFocus: $memoFocused)
+
+                case .deadline:
+                    DeadlineCellContent(
+                        tasks: $tasks,
+                        addTask: { tasks.append(TaskItem(text: "", dueDate: nil)) },
+                        deleteTask: { tasks.remove(atOffsets: $0) },
+                        taskFocus: $focusedTaskId
+                    )
+
+                case .routine, .today:
+                    ChecklistCellContent(
+                        itemType: item.cellType,
+                        itemName: item.name,
+                        tasks: $tasks,
+                        addTask: { tasks.append(TaskItem(text: "", dueDate: nil)) },
+                        deleteTask: { tasks.remove(atOffsets: $0) },
+                        taskFocus: $focusedTaskId
+                    )
+                }
+            }
+            .background(Color.white)   // セルは白のまま（可読性）
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .shadow(color: Theme.bgDark.opacity(0.25), radius: 6, x: 0, y: 2)
+            // Done はここに1つだけ
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        focusedTaskId = nil
+                        memoFocused = false
+                    }
+                    .foregroundStyle(Theme.accent)
+                }
+            }
+
+            // 右下ドラッグでサイズ変更（サブアクセント色）
+            Circle()
+                .fill(Theme.accent2.opacity(0.85))
+                .frame(width: 25, height: 25)
+                .padding(4)
+                .shadow(color: Theme.accent2.opacity(0.5), radius: 3, y: 1)
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            item.width += value.translation.width
+                            item.height += value.translation.height
+                        }
+                )
+        }
+        .frame(width: item.width, height: item.height)
+        .position(x: item.positionX, y: item.positionY)
+        .offset(dragOffset)
+        .gesture(
+            DragGesture()
+                .onChanged { value in dragOffset = value.translation }
+                .onEnded { value in
+                    item.positionX += value.translation.width
+                    item.positionY += value.translation.height
+                    dragOffset = .zero
+                }
+        )
+        .contextMenu {
+            Button(role: .destructive) {
+                modelContext.delete(item)
+            } label: {
+                Label("セルを削除", systemImage: "trash")
+            }
+        }
+        .onAppear(perform: onAppearLoad)
+        .onChange(of: tasks) { _, _ in saveContent() }
+        .onChange(of: memoText) { _, _ in saveContent() }
+    }
+
+    // MARK: - Load / Save
+    private func onAppearLoad() {
+        loadContent()
+
+        if item.cellType == .routine {
+            var changed = false
+            for i in tasks.indices {
+                if tasks[i].isCompleted,
+                   let last = tasks[i].lastCompletedDate,
+                   !Calendar.current.isDateInToday(last) {
+                    tasks[i].isCompleted = false
+                    changed = true
+                }
+            }
+            if changed { saveContent() }
+        } else if item.cellType == .today {
+            if !Calendar.current.isDateInToday(item.lastModifiedDate) {
+                tasks.removeAll()
+                saveContent()
+            }
+        }
+    }
+
+    private func loadContent() {
+        guard let data = item.content else {
+            tasks = []; memoText = ""; return
+        }
+        switch item.cellType {
+        case .memo:
+            memoText = String(data: data, encoding: .utf8) ?? ""
+        default:
+            if let decoded = try? JSONDecoder().decode([TaskItem].self, from: data) {
+                tasks = decoded
+            } else {
+                tasks = []
+            }
+        }
+    }
+
+    private func saveContent() {
+        if item.cellType == .memo {
+            item.content = memoText.data(using: .utf8)
+        } else {
+            item.content = try? JSONEncoder().encode(tasks)
+        }
+        item.lastModifiedDate = Date()
+    }
+}
+
